@@ -514,9 +514,18 @@ function renderSetup(){
     </div>`;
   }).join('');
 
-  return `<div class="header"><div class="header-title">JMP 2026 Study Planner</div><div class="header-sub">Year 4 Medicine · ${ALL_LPS.length} learning points across 6 topics</div></div>
+  return `<div class="header"><div class="header-title">JMP 2026 Study Planner</div><div class="header-sub">Year 4 Medicine · ${ALL_LPS.length} learning points across 6 topics</div><div style="font-size:11px;color:var(--gray-400);margin-top:3px">Last updated 17 Apr 2026</div></div>
   <div class="card" style="background:var(--gray-50)">
-    <p style="font-size:13px;color:var(--gray-600);line-height:1.7;margin:0">This planner distributes all ${ALL_LPS.length} Year 4 Medicine learning points evenly across your study period. Rate each point after studying it, snooze ones you need to revisit, and track your progress by topic. Study ahead to earn protected days off.</p>
+    <p style="font-size:13px;color:var(--gray-600);line-height:1.7;margin:0 0 12px">This planner distributes all ${ALL_LPS.length} Year 4 Medicine learning points evenly across your study period. Rate each point after studying it, snooze ones you need to revisit, and track your progress by topic. Study ahead to earn protected days off.</p>
+    <div style="border-top:1px solid var(--gray-200);padding-top:12px">
+      <div style="font-size:12px;font-weight:500;color:var(--gray-600);margin-bottom:6px">Progress is stored on your device.</div>
+      <ul style="font-size:12px;color:var(--gray-500);line-height:1.8;margin:0;padding-left:16px">
+        <li>Use the same browser on the same device each time</li>
+        <li>Regularly export your progress via the Export button in Settings</li>
+        <li>Use Import to restore your save file</li>
+        <li>Clearing browser data or using incognito will wipe your progress — export first to save your progress</li>
+      </ul>
+    </div>
   </div>
   <div class="card"><div class="card-title">Dates</div>
     <div class="form-row"><label>Start date</label><input type="date" id="iS" value="${today}" oninput="upPrev()"/></div>
@@ -2047,6 +2056,12 @@ function renderSettings(){
       </div>
     </div>
     <div id="import-msg" style="margin-top:10px;font-size:12px;display:none"></div>
+  </div>
+  <div class="card"><div class="card-title">About</div>
+    <div style="font-size:13px;color:var(--gray-500);line-height:1.8">
+      <div>JMP 2026 Study Planner</div>
+      <div style="font-size:12px;color:var(--gray-400)">Last updated: 17 Apr 2026</div>
+    </div>
   </div>
   <div class="card"><div class="card-title">Danger zone</div><button class="btn danger" onclick="resetPlan()">Reset and start over</button></div>`;
 }

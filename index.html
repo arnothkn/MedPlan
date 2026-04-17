@@ -16,7 +16,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--gray-50);color:var(--gray
 .header-sub{font-size:13px;color:var(--gray-500);margin-top:3px}
 .card{background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius);padding:18px 20px;margin-bottom:14px}
 .card-title{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.08em;color:var(--gray-400);margin-bottom:12px}
-.tabs{display:flex;border-bottom:1px solid var(--gray-200);margin-bottom:20px;overflow-x:auto}
+.tabs{display:flex;border-bottom:1px solid var(--gray-200);margin-bottom:20px;overflow-x:visible}
 .tab{padding:8px 13px;font-size:13px;cursor:pointer;color:var(--gray-500);border-bottom:2px solid transparent;margin-bottom:-1px;font-family:'DM Sans',sans-serif;background:none;border-top:none;border-left:none;border-right:none;white-space:nowrap}
 .tab.active{color:var(--green);border-bottom-color:var(--green);font-weight:500}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 18px;border-radius:var(--radius-sm);border:1px solid var(--gray-300);background:#fff;color:var(--gray-700);font-size:13px;font-family:'DM Sans',sans-serif;cursor:pointer;transition:all .15s;font-weight:400}
@@ -116,6 +116,7 @@ input:focus{outline:none;border-color:var(--green)}
 .ar-title{color:var(--gray-700)}
 .ar-link{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--amber-dark);margin-top:4px;text-decoration:none}
 .ar-link:hover{text-decoration:underline}
+@keyframes pulse-border{0%,100%{border-color:rgba(26,158,110,.3);}50%{border-color:rgba(26,158,110,1);}}
 </style>
 </head>
 <body>
@@ -450,7 +451,7 @@ function lpIntegrityCheck(st){
 function render(){
   const app=document.getElementById('app');
   if(!state){app.innerHTML=renderSetup();upPrev();return;}
-  const tabs=['Dashboard','Study','Progress','History','Calendar','Notes','Settings'];
+  const tabs=['Dashboard','Study','Calendar','Progress','History','Notes','Settings'];
   const modal=state.viewingDay?renderViewModal():state.pendingResolve?renderResolvePopup():'';
   app.innerHTML=`${modal}<div class="header"><div class="header-title">JMP 2026 Study Planner</div><div class="header-sub">Year 4 Medicine · ${state.allLPs.length} learning points</div></div>
   <div class="tabs">${tabs.map(t=>`<button class="tab${activeTab===t?' active':''}" onclick="sw('${t}')">${t}</button>`).join('')}</div>
@@ -500,6 +501,7 @@ function renderSetup(){
   lpComplexityMode=false;
   lpExcluded.clear();
   lpOrder='random';
+  lpOwlHours=0;
   const today=dsNow(),dead=ds(addDays(new Date(),42));
 
   const tnames=['T1: Cardiovascular & Respiratory','T2: Gastroenterology & Renal','T3: Neurology, Endocrinology & Diabetes','T4: Rheumatology, Older Person\'s Health & Palliative Care','T5: Infectious Disease, Sexual Health & Dermatology','T6: Oncology & Haematology'];
@@ -517,7 +519,7 @@ function renderSetup(){
 
   return `<div class="header"><div class="header-title">JMP 2026 Study Planner</div><div class="header-sub">Year 4 Medicine · ${ALL_LPS.length} learning points across 6 topics</div><div style="font-size:11px;color:var(--gray-400);margin-top:3px">Last updated 17 Apr 2026</div></div>
   <div class="card" style="background:var(--gray-50)">
-    <p style="font-size:13px;color:var(--gray-600);line-height:1.7;margin:0 0 12px">This planner distributes all ${ALL_LPS.length} Year 4 Medicine learning points evenly across your study period. Rate each point after studying it, snooze ones you need to revisit, and track your progress by topic. Study ahead to earn protected days off.</p>
+    <p style="font-size:13px;color:var(--gray-600);line-height:1.7;margin:0 0 12px">Plan and track your Year 4 Medicine learning points across all 6 topics. Each day you'll be given a set of points to study — rate them, snooze anything you need to revisit, and mark the day done. Study ahead to earn "protected" days off, and export your progress anytime to keep your progress safe.</p>
     <div style="border-top:1px solid var(--gray-200);padding-top:12px">
       <div style="font-size:12px;font-weight:500;color:var(--gray-600);margin-bottom:6px">Progress is saved automatically in your browser.</div>
       <ul style="font-size:12px;color:var(--gray-500);line-height:1.8;margin:0;padding-left:16px">
@@ -544,6 +546,13 @@ function renderSetup(){
         <input type="checkbox" id="iCmx" onchange="lpComplexityMode=this.checked"/>
         Distribute LPs by complexity score rather than equal count
       </label>
+    </div>
+    <div class="form-row"><label>New day starts after</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+        <input type="number" id="iOwl" value="0" min="0" max="6" style="width:60px" oninput="updSetupOwl(this.value)"/>
+        <span style="font-size:13px;color:var(--gray-500)" id="iOwlDesc">midnight (default)</span>
+      </div>
+      <div style="font-size:12px;color:var(--gray-400);margin-top:5px">Set to the latest time you think you'll be studying. If you study past midnight, today's session won't roll over until then.</div>
     </div>
     <div id="pv"></div></div>
   <div class="card">
@@ -572,7 +581,14 @@ function renderSetup(){
 
 let lpOrder='random';
 let lpComplexityMode=false;
+let lpOwlHours=0;
 const lpExcluded=new Set();
+
+function updSetupOwl(v){
+  lpOwlHours=Math.min(6,Math.max(0,parseInt(v)||0));
+  const desc=document.getElementById('iOwlDesc');
+  if(desc) desc.textContent=lpOwlHours===0?'midnight (default)':`${lpOwlHours}:00 AM`;
+}
 
 function setOrder(o,el){
   lpOrder=o;
@@ -640,10 +656,11 @@ function startPlan(){
     const excludedLps=allTopicLps.filter(l=>lpExcluded.has(l.id));
     excludedLps.forEach(l=>mastery[l.id]=3);
   }
-  state={startDate:s,deadline:d,bufferDays:b,lpOrder,complexityMode:lpComplexityMode,allLPs:allTopicLps,days:sched,mastery,snoozed:{},excludedIds:[...lpExcluded]};
+  state={startDate:s,deadline:d,bufferDays:b,lpOrder,complexityMode:lpComplexityMode,nightOwlHours:lpOwlHours,allLPs:allTopicLps,days:sched,mastery,snoozed:{},excludedIds:[...lpExcluded]};
   lpIntegrityCheck(state);
   activeTab='Dashboard';
   save(state);render();
+  window.scrollTo(0,0);
 }
 
 function getSnoozedIds(){
@@ -756,7 +773,7 @@ function renderDash(){
   } else if(!dayObj.completed){
     ctaHtml+=box(`sw('Study')`,'var(--green)','#fff','var(--green-dark)','Today\'s session',
       `${activeLpCount(dayObj)} learning point${activeLpCount(dayObj)!==1?'s':''} to cover`,
-      `<span style="font-size:20px;color:var(--green)">→</span>`);
+      `<span style="font-size:20px;color:var(--green)">→</span>`,'pointer',';animation:pulse-border 2.5s ease-in-out infinite');
   }
 
   // Active specific-date session (aheadDate set right now)
@@ -778,7 +795,7 @@ function renderDash(){
       const pts=activeLpCount(nextStudy)+returning;
       ctaHtml+=box(`startStudyAhead('${nextStudy.date}')`,'var(--gray-300)','#fff','var(--gray-400)',
         'Study ahead — optional',`${fmt(nextStudy.date)} · ${pts} point${pts!==1?'s':''}`,
-        `<span style="font-size:20px;color:var(--gray-300)">→</span>`,'pointer',';border-style:dashed');
+        `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><span style="font-size:20px;color:var(--gray-300)">→</span><span onclick="event.stopPropagation();sw('Calendar')" onmouseover="this.style.color='var(--gray-700)';this.style.background='var(--gray-100)';event.stopPropagation()" onmouseout="this.style.color='var(--gray-400)';this.style.background='transparent'" style="font-size:11px;color:var(--gray-400);text-decoration:underline;cursor:pointer;white-space:nowrap;padding:2px 6px;border-radius:4px;transition:all .15s">Choose a specific date</span></div>`,'pointer',';border-style:dashed');
     }
   }
 
@@ -1978,7 +1995,15 @@ function renderSettings(){
     }
   }
 
-  return`<div class="card"><div class="card-title">Buffer days</div>
+  return`<div class="card"><div class="card-title">Deadline</div>
+    <div style="font-size:13px;color:var(--gray-500);margin-bottom:12px;line-height:1.6">Change your exam or submission deadline. This will redistribute your remaining learning points across the updated schedule.</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <input type="date" id="dlInput" value="${state.deadline}" oninput="updDeadline()"/>
+    </div>
+    <div id="dlInfo" style="font-size:12px;color:var(--gray-400);margin-bottom:10px">${fmt(state.deadline)}</div>
+    <button id="applyDlBtn" class="btn sm" onclick="applyDeadline()" style="display:none">Apply changes</button>
+  </div>
+  <div class="card"><div class="card-title">Buffer days</div>
     <div style="font-size:13px;color:var(--gray-500);margin-bottom:12px;line-height:1.6">Finish this many days before the deadline. Changing this will redistribute your remaining learning points.</div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
       <input type="number" id="be" value="${state.bufferDays}" min="0" max="90" style="width:80px" oninput="updBuf()"/>
@@ -2164,6 +2189,7 @@ function importProgress(input){
       save(state);
       activeTab='Dashboard';
       render();
+      window.scrollTo(0,0);
     }catch(err){
       if(msg){msg.style.display='';msg.style.color='var(--red-dark)';msg.textContent='✕ Import failed: '+err.message;}
     }
@@ -2254,6 +2280,54 @@ function applyOwl(){
   state.nightOwlHours=v;
   save(state);rerender();
 }
+function updDeadline(){
+  const v=document.getElementById('dlInput')?.value;
+  const info=document.getElementById('dlInfo');
+  const btn=document.getElementById('applyDlBtn');
+  if(!v){return;}
+  if(info) info.textContent=v===state.deadline?fmt(v):`${fmt(v)} — was ${fmt(state.deadline)}`;
+  if(btn) btn.style.display=v!==state.deadline?'':'none';
+}
+function applyDeadline(){
+  const v=document.getElementById('dlInput')?.value;
+  if(!v||v===state.deadline){rerender();return;}
+  const today=dsNow();
+  if(v<=today){
+    alert('Deadline must be after today.');
+    document.getElementById('dlInput').value=state.deadline;
+    return;
+  }
+  if(v<=state.startDate){
+    alert('Deadline must be after your start date ('+fmt(state.startDate)+').');
+    document.getElementById('dlInput').value=state.deadline;
+    return;
+  }
+  // Check if moving deadline earlier is drastic
+  const oldDays=diffDays(pd(today),pd(state.deadline));
+  const newDays=diffDays(pd(today),pd(v));
+  const isEarlier=v<state.deadline;
+  const msg=isEarlier
+    ?`Move deadline earlier to ${fmt(v)}? This compresses your remaining schedule — LPs will be redistributed across fewer days. Completed days are preserved.\n\nContinue?`
+    :`Move deadline later to ${fmt(v)}? LPs will be spread across more days. Completed days are preserved.\n\nContinue?`;
+  if(!confirm(msg)){document.getElementById('dlInput').value=state.deadline;return;}
+  // Clamp buffer days if needed
+  const minDays=diffDays(pd(today),pd(v))-1;
+  if(state.bufferDays>=minDays){
+    state.bufferDays=Math.max(0,minDays-1);
+    alert(`Buffer days reduced to ${state.bufferDays} to fit the new deadline.`);
+  }
+  // Clear any snoozed LPs with return dates past the new deadline
+  Object.entries(state.snoozed||{}).forEach(([id,s])=>{
+    const r=typeof s==='string'?s:s.returnDate;
+    if(r>v) delete state.snoozed[id];
+  });
+  state.deadline=v;
+  recalc(state);
+  lpIntegrityCheck(state);
+  save(state);
+  rerender();
+}
+
 function updBuf(){
   const v=parseInt(document.getElementById('be').value)||0;
   const te=addDays(pd(state.deadline),-v-1);

@@ -324,7 +324,14 @@ function distributeByComplexity(lps, numDays){
 }
 
 function buildSched(lps,s0,dl,buf,order,complexityMode){
-  lps=order==='sequential'?[...lps].sort((a,b)=>a.topic-b.topic||a.id-b.id):shuffle(lps);
+  if(order==='sequential'){
+    lps=[...lps].sort((a,b)=>a.topic-b.topic||a.id-b.id);
+  } else if(Array.isArray(order)){
+    const topicPos={};order.forEach((t,i)=>topicPos[t]=i);
+    lps=[...lps].sort((a,b)=>(topicPos[a.topic]??99)-(topicPos[b.topic]??99)||a.id-b.id);
+  } else {
+    lps=shuffle(lps);
+  }
   const s=pd(s0),d=pd(dl),te=addDays(d,-buf-1);
   const days=Math.max(1,diffDays(s,te)+1);
   const out=[];
@@ -450,7 +457,7 @@ function lpIntegrityCheck(st){
 
 function render(){
   const app=document.getElementById('app');
-  if(!state){app.innerHTML=renderSetup();upPrev();return;}
+  if(!state){app.innerHTML=renderSetup();upPrev();initDragDrop();return;}
   const tabs=['Dashboard','Study','Calendar','Progress','History','Notes','Settings'];
   const modal=state.viewingDay?renderViewModal():state.pendingResolve?renderResolvePopup():'';
   app.innerHTML=`${modal}<div class="header"><div class="header-title">JMP 2026 Study Planner</div><div class="header-sub">Year 4 Medicine · ${state.allLPs.length} learning points</div></div>
@@ -502,6 +509,7 @@ function renderSetup(){
   lpExcluded.clear();
   lpOrder='random';
   lpOwlHours=0;
+  lpTopicOrder=[1,2,3,4,5,6];
   const today=dsNow(),dead=ds(addDays(new Date(),42));
 
   const tnames=['T1: Cardiovascular & Respiratory','T2: Gastroenterology & Renal','T3: Neurology, Endocrinology & Diabetes','T4: Rheumatology, Older Person\'s Health & Palliative Care','T5: Infectious Disease, Sexual Health & Dermatology','T6: Oncology & Haematology'];
@@ -517,7 +525,7 @@ function renderSetup(){
     </div>`;
   }).join('');
 
-  return `<div class="header"><div class="header-title">JMP 2026 Study Planner</div><div class="header-sub">Year 4 Medicine · ${ALL_LPS.length} learning points across 6 topics</div><div style="font-size:11px;color:var(--gray-400);margin-top:3px">Last updated 17 Apr 2026</div></div>
+  return `<div class="header"><div class="header-title">JMP 2026 Study Planner</div><div class="header-sub">Year 4 Medicine · ${ALL_LPS.length} learning points across 6 topics</div><div style="font-size:11px;color:var(--gray-400);margin-top:3px">Last updated 19 Apr 2026</div></div>
   <div class="card" style="background:var(--gray-50)">
     <p style="font-size:13px;color:var(--gray-600);line-height:1.7;margin:0 0 12px">Plan and track your Year 4 Medicine learning points across all 6 topics. Each day you'll be given a set of points to study — rate them, snooze anything you need to revisit, and mark the day done. Study ahead to earn "protected" days off, and export your progress anytime to keep your progress safe.</p>
     <div style="border-top:1px solid var(--gray-200);padding-top:12px">
@@ -536,9 +544,20 @@ function renderSetup(){
     <div class="form-row"><label>Deadline</label><input type="date" id="iD" value="${dead}" oninput="upPrev()"/></div>
     <div class="form-row"><label>Buffer days — finish this many days before the deadline</label><input type="number" id="iB" value="3" min="0" max="90" style="width:80px" oninput="upPrev()"/></div>
     <div class="form-row"><label>Learning point order</label>
-      <div style="display:flex;gap:8px;margin-top:4px">
+      <div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">
         <button id="oRand" class="chip on" onclick="setOrder('random',this)">🔀 Randomised</button>
         <button id="oSeq" class="chip" onclick="setOrder('sequential',this)">1→6 Topic order</button>
+        <button id="oCust" class="chip" onclick="setOrder('custom',this)">Custom order</button>
+      </div>
+      <div id="customTopicOrder" style="display:none;margin-top:10px">
+        <div style="font-size:12px;color:var(--gray-400);margin-bottom:6px">Drag to set your preferred topic order:</div>
+        <div id="topicDragList" style="display:flex;flex-direction:column;gap:4px">
+          ${[1,2,3,4,5,6].map(t=>`<div draggable="true" data-topic="${t}" style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:6px;cursor:grab;font-size:12px;color:var(--gray-700);user-select:none">
+            <span style="color:var(--gray-300);font-size:14px">⠿</span>
+            <span style="font-size:10px;font-weight:600;color:var(--gray-400);min-width:16px">T${t}</span>
+            <span>${TNAMES[t-1]}</span>
+          </div>`).join('')}
+        </div>
       </div>
     </div>
     <div class="form-row"><label>Complexity-weighted scheduling</label>
@@ -583,6 +602,7 @@ function renderSetup(){
 let lpOrder='random';
 let lpComplexityMode=false;
 let lpOwlHours=0;
+let lpTopicOrder=[1,2,3,4,5,6];
 const lpExcluded=new Set();
 
 function updSetupOwl(v){
@@ -592,9 +612,40 @@ function updSetupOwl(v){
 }
 
 function setOrder(o,el){
-  lpOrder=o;
-  document.querySelectorAll('#oRand,#oSeq').forEach(b=>b.classList.remove('on'));
+  lpOrder=o==='custom'?lpTopicOrder:o;
+  document.querySelectorAll('#oRand,#oSeq,#oCust').forEach(b=>b&&b.classList.remove('on'));
   el.classList.add('on');
+  const customList=document.getElementById('customTopicOrder');
+  if(customList) customList.style.display=o==='custom'?'block':'none';
+}
+
+function initDragDrop(){
+  const list=document.getElementById('topicDragList');
+  if(!list) return;
+  let dragging=null;
+  list.querySelectorAll('[draggable]').forEach(item=>{
+    item.addEventListener('dragstart',e=>{dragging=item;item.style.opacity='.4';});
+    item.addEventListener('dragend',e=>{dragging=null;item.style.opacity='1';});
+    item.addEventListener('dragover',e=>{
+      e.preventDefault();
+      const after=getDragAfter(list,e.clientY);
+      if(after==null) list.appendChild(dragging);
+      else list.insertBefore(dragging,after);
+    });
+  });
+  function getDragAfter(container,y){
+    const els=[...container.querySelectorAll('[draggable]:not([style*="opacity: 0.4"])')];
+    return els.reduce((closest,child)=>{
+      const box=child.getBoundingClientRect();
+      const offset=y-box.top-box.height/2;
+      return offset<0&&offset>(closest.offset||(-Infinity))?{offset,element:child}:closest;
+    },{}).element||null;
+  }
+  // Update lpTopicOrder and lpOrder on any drop
+  list.addEventListener('dragend',()=>{
+    lpTopicOrder=[...list.querySelectorAll('[draggable]')].map(el=>parseInt(el.dataset.topic));
+    lpOrder=lpTopicOrder;
+  });
 }
 
 function toggleExcludeLP(id,checked){
@@ -662,6 +713,69 @@ function startPlan(){
   activeTab='Dashboard';
   save(state);render();
   window.scrollTo(0,0);
+  showOnboarding();
+}
+
+function showOnboarding(){
+  const COLORS={
+    green:{bg:'#f0fdf4',border:'#bbf7d0',dot:'#16a34a',text:'#15803d'},
+    amber:{bg:'#fffbeb',border:'#fde68a',dot:'#d97706',text:'#b45309'},
+    red:  {bg:'#fef2f2',border:'#fecaca',dot:'#dc2626',text:'#b91c1c'},
+    blue: {bg:'#eff6ff',border:'#bfdbfe',dot:'#3b82f6',text:'#1d4ed8'},
+    purple:{bg:'#faf5ff',border:'#e9d5ff',dot:'#a855f7',text:'#7c3aed'},
+    gray: {bg:'#f9fafb',border:'#e5e7eb',dot:'#9ca3af',text:'#6b7280'},
+  };
+  const pill=(c,label)=>{const col=COLORS[c];return`<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:${col.bg};border-radius:6px;border:1px solid ${col.border}"><div style="width:8px;height:8px;border-radius:50%;background:${col.dot};flex-shrink:0"></div><span style="font-size:12px;color:${col.text}">${label}</span></div>`;};
+  const sep=()=>`<div style="width:100%;height:0.5px;background:#f3f4f6;margin:2px 0"></div>`;
+  const calRow=(inner,circleBg,circleBorder,dateLabel,desc,descColor)=>`<div style="display:flex;align-items:center;gap:10px;padding:5px 0"><div style="width:32px;height:32px;border-radius:50%;background:${circleBg};border:${circleBorder};display:flex;align-items:center;justify-content:center;flex-shrink:0">${inner}</div><div><div style="font-size:12px;font-weight:500;color:#111">${dateLabel}</div><div style="font-size:11px;color:${descColor||'#6b7280'}">${desc}</div></div></div>`;
+  const num=(n,col)=>`<span style="font-size:10px;font-weight:500;color:${col}">${n}</span>`;
+  const tick=`<svg width="13" height="13" viewBox="0 0 13 13" fill="none"><polyline points="2,7 5,10 11,3" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const bufDash=`<span style="font-size:14px;font-weight:300;color:#16a34a;line-height:1">–</span>`;
+
+  const slides=[
+    {title:'Welcome to your study planner',body:`<p style="font-size:13px;color:#6b7280;line-height:1.7;margin-bottom:14px">Your 122 learning points are spread across your study period. Each day you get a small set to work through — rate them, snooze anything you need to revisit, and mark the day done.</p><div style="display:flex;flex-direction:column;gap:6px">${pill('green','Confident — got it')}${pill('amber','Getting there — still learning')}${pill('red','Needs work — revisit soon')}</div>`},
+    {title:'Snooze to revisit later',body:`<p style="font-size:13px;color:#6b7280;line-height:1.7;margin-bottom:14px">Not ready to rate a point yet? Snooze it — it returns in 3 days so you can review it again before rating.</p>${pill('amber','Snoozed — returning in 3 days')}<p style="font-size:12px;color:#6b7280;line-height:1.6;margin-top:10px">Days with returning snoozed points show a small <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f59e0b;vertical-align:middle"></span> amber dot on the Calendar.</p>`},
+    {title:'Study ahead for a day off',body:`<p style="font-size:13px;color:#6b7280;line-height:1.7;margin-bottom:14px">Complete a future day's session early from the Dashboard or Calendar. You can then take that day as a protected day off — streak preserved, no points scheduled.</p><div style="display:flex;flex-direction:column;gap:6px">${pill('purple','Protected — earned day off')}<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#f0fdf4;border-radius:6px;border:1.5px dashed #16a34a"><div style="width:8px;height:8px;border-radius:50%;background:#16a34a;flex-shrink:0"></div><span style="font-size:12px;color:#15803d">Buffer — free days before deadline</span></div></div>`},
+    {title:'Your schedule on the Calendar',body:`<p style="font-size:13px;color:#6b7280;line-height:1.7;margin-bottom:14px">The Calendar tab shows your full schedule. Each circle shows how many points are due — tap any future day to preview and study it early.</p><div style="display:flex;flex-direction:column;gap:2px;border-top:0.5px solid #f3f4f6;padding-top:12px">${calRow(num('4','#1d4ed8'),'#eff6ff','2px solid #3b82f6','19 Apr','4 learning points due — today','#1d4ed8')}${sep()}${calRow(num('3','#6b7280'),'#f9fafb','1px solid #e5e7eb','20 Apr','3 learning points due','')}${sep()}${calRow(tick,'#faf5ff','2px solid #a855f7','21 Apr','Protected day — no points','#7c3aed')}${sep()}${calRow(num('3','#6b7280'),'#f9fafb','1px solid #e5e7eb','22 Apr','3 learning points due','')}${sep()}${calRow(bufDash,'#f0fdf4','1.5px dashed #16a34a','23 Apr','Buffer day — no points','#15803d')}</div>`},
+    {title:'Export your progress regularly',body:`<p style="font-size:13px;color:#6b7280;line-height:1.7;margin-bottom:12px">Progress saves automatically in your browser, but it can be lost if you clear your cache or switch devices.</p><p style="font-size:13px;color:#6b7280;line-height:1.7">Go to <span style="font-weight:500;color:#111">Settings → Export progress</span> regularly. Use Import to restore on any device.</p>`},
+  ];
+
+  let idx=0;
+  const overlay=document.createElement('div');
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:500;padding:20px 64px;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)';
+
+  const modal=document.createElement('div');
+  modal.style.cssText='background:#fff;border-radius:12px;width:100%;max-width:380px;overflow:hidden;font-family:inherit';
+
+  const close=()=>document.body.removeChild(overlay);
+
+  const renderSlide=()=>{
+    const s=slides[idx];
+    const dotsHtml=slides.map((_,i)=>`<div onclick="(function(){window._obIdx=${i};window._obRender();})()" style="width:7px;height:7px;border-radius:50%;background:${i===idx?'#1a1a1a':'#d1d5db'};cursor:pointer;flex-shrink:0"></div>`).join('');
+    const isLast=idx===slides.length-1;
+    modal.innerHTML=`
+      <div style="padding:20px 20px 16px">
+        <div style="font-size:11px;color:#9ca3af;margin-bottom:8px;letter-spacing:.04em">${idx+1} of ${slides.length}</div>
+        <div style="font-size:16px;font-weight:500;color:#111;margin-bottom:12px">${s.title}</div>
+        ${s.body}
+      </div>
+      <div style="padding:12px 20px 16px;border-top:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;gap:7px;align-items:center">${dotsHtml}</div>
+        <div style="display:flex;gap:10px;align-items:center">
+          ${!isLast?`<span onclick="window._obClose()" style="font-size:12px;color:#9ca3af;cursor:pointer;text-decoration:underline;text-underline-offset:2px">Skip</span>`:''}
+          <button onclick="window._obNext()" style="font-size:12px;padding:6px 16px;border-radius:20px;background:#1a1a1a;color:#fff;border:none;cursor:pointer;font-family:inherit">${isLast?'Done':'Next →'}</button>
+        </div>
+      </div>`;
+  };
+
+  window._obIdx=0;
+  window._obRender=()=>{idx=window._obIdx;renderSlide();};
+  window._obNext=()=>{if(idx<slides.length-1){window._obIdx=idx+1;window._obRender();}else close();};
+  window._obClose=()=>close();
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  renderSlide();
 }
 
 function getSnoozedIds(){
@@ -1870,11 +1984,12 @@ function renderCalendarGrid(){
       const isToday=dateStr===today;
       const isPast=dateStr<today;
       const inRange=dateStr>=state.startDate&&dateStr<=state.deadline;
+      const inRangeOrToday=inRange||isToday;
 
       let bg='transparent',color='var(--gray-300)',border='none',title='';
       const isFuture=dateStr>today;
       const snoozedCount=Object.values(state.snoozed||{}).filter(s=>{const r=typeof s==='string'?s:s.returnDate;return r===dateStr;}).length;
-      const totalCount=activeLpCount(d)+snoozedCount;
+      const totalCount=isToday?(d?d.lps.length+snoozedCount:0):activeLpCount(d)+snoozedCount;
 
       if(!inRange){
         bg='transparent';color='var(--gray-200)';
@@ -1896,16 +2011,16 @@ function renderCalendarGrid(){
       if(dateStr===state.deadline&&!isToday&&!(d&&d.skipped)){bg='var(--red-light)';color='var(--red-dark)';border='2px solid var(--red)';}
       // Days with returning LPs show as grey scheduled regardless of completed status
       if(snoozedCount>0&&!isToday&&dateStr!==state.deadline){bg='var(--gray-100)';color='var(--gray-700)';border='none';}
-      const showCount=inRange&&!d?.isBuffer&&totalCount>0;
-      const showAmberDot=inRange&&snoozedCount>0;
-      const isClickable=inRange&&!d?.isBuffer&&(totalCount>0||d?.isProtected||d?.completed||d?.skipped);
+      const showCount=(inRangeOrToday&&!d?.isBuffer&&totalCount>0)||(isToday&&d&&d.lps.length>0);
+      const showAmberDot=inRange&&snoozedCount>0&&!showCount;
+      const isClickable=isToday||(inRangeOrToday&&!d?.isBuffer&&(totalCount>0||d?.isProtected||d?.completed||d?.skipped));
       const isPeeked=state.calendarPeek===dateStr;
 
       if(isPeeked){border='2px solid var(--gray-700)';}
 
       grid+=`<div onclick="${isClickable?`calPeek('${dateStr}')`:''}" title="${title}" style="aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:50%;background:${bg};color:${color};font-size:12px;border:${border};font-weight:${isToday?'500':'400'};cursor:${isClickable?'pointer':'default'};gap:1px">
         <span>${day}</span>
-        ${showCount?`<span style="font-size:8px;line-height:1;display:flex;align-items:center;gap:2px;opacity:.85">${totalCount}${snoozedCount>0?`<span style="width:4px;height:4px;border-radius:50%;background:#f59e0b;display:inline-block;flex-shrink:0"></span>`:''}</span>`:showAmberDot?`<span style="width:4px;height:4px;border-radius:50%;background:#f59e0b;display:inline-block"></span>`:''}
+        ${showCount?`<span style="font-size:8px;line-height:1;display:flex;align-items:center;gap:2px;opacity:.85">${isToday&&d?d.lps.length:totalCount}${snoozedCount>0?`<span style="width:4px;height:4px;border-radius:50%;background:#f59e0b;display:inline-block;flex-shrink:0"></span>`:''}</span>`:showAmberDot?`<span style="width:4px;height:4px;border-radius:50%;background:#f59e0b;display:inline-block"></span>`:''}
       </div>`;
     }
 
@@ -1932,7 +2047,8 @@ function renderCalendarGrid(){
         );
         const returningLps=[...snoozedIds].map(id=>state.allLPs.find(l=>l.id===id)).filter(Boolean);
         const allLps=[...scheduledLps,...returningLps.filter(rl=>!scheduledLps.find(l=>l.id===rl.id))];
-        if(allLps.length||isProtectedDay){
+        const isPeekToday=pk===today;
+        if(allLps.length||isProtectedDay||isPeekToday){
           const returnCount=snoozedIds.size;
           const scheduledCount=scheduledLps.length;
           const pkDayObj=dayMap[pk];
@@ -2086,13 +2202,13 @@ function renderSettings(){
     </label>
     ${state.complexityMode?`<div style="font-size:12px;color:var(--gray-400);margin-top:8px">Active — schedule redistributed by complexity. Total: 226 pts across ${state.allLPs.length} LPs, avg ${(226/state.allLPs.length).toFixed(1)} per LP.</div>`:''}
   </div>
-  <div class="card"><div class="card-title">Night owl mode</div>
-    <div style="font-size:13px;color:var(--gray-500);margin-bottom:12px;line-height:1.6">If you study past midnight, the app can treat the early hours as still belonging to the previous day — so your streak stays intact and "today's session" remains correct.</div>
+  <div class="card"><div class="card-title">New day starts after</div>
+    <div style="font-size:13px;color:var(--gray-500);margin-bottom:12px;line-height:1.6">Set to the latest time you think you'll be studying. If you study past midnight, today's session won't roll over until then.</div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
       <input type="number" id="nowl" value="${owl}" min="0" max="6" style="width:60px" oninput="updOwl()"/>
-      <span style="font-size:13px;color:var(--gray-500)">hours past midnight still count as yesterday</span>
+      <span style="font-size:13px;color:var(--gray-500)">hours past midnight</span>
     </div>
-    <div style="font-size:12px;color:var(--gray-400);margin-bottom:10px" id="owlDesc">${owl===0?'Off — new day starts at midnight':`New day starts at ${owl}:00 AM`}</div>
+    <div style="font-size:12px;color:var(--gray-400);margin-bottom:10px" id="owlDesc">${owl===0?'New day starts at midnight (default)':`New day starts at ${owl}:00 AM`}</div>
     <button id="applyOwlBtn" class="btn sm" onclick="applyOwl()" style="display:none">Apply changes</button>
   </div>
   <div class="card"><div class="card-title">Debug</div>
@@ -2149,7 +2265,7 @@ function renderSettings(){
   <div class="card"><div class="card-title">About</div>
     <div style="font-size:13px;color:var(--gray-500);line-height:1.8">
       <div>JMP 2026 Study Planner</div>
-      <div style="font-size:12px;color:var(--gray-400)">Last updated: 17 Apr 2026</div>
+      <div style="font-size:12px;color:var(--gray-400)">Last updated: 19 Apr 2026</div>
     </div>
   </div>
   <div class="card"><div class="card-title">Danger zone</div><button class="btn danger" onclick="resetPlan()">Reset and start over</button></div>`;
@@ -2429,7 +2545,7 @@ function importNotes(input){
 function updOwl(){
   const v=Math.min(6,Math.max(0,parseInt(document.getElementById('nowl').value)||0));
   const desc=document.getElementById('owlDesc');
-  if(desc) desc.textContent=v===0?'Off — new day starts at midnight':`New day starts at ${v}:00 AM`;
+  if(desc) desc.textContent=v===0?'New day starts at midnight (default)':`New day starts at ${v}:00 AM`;
   const btn=document.getElementById('applyOwlBtn');
   if(btn) btn.style.display=v!==(state.nightOwlHours||0)?'':'none';
 }

@@ -379,7 +379,16 @@ function recalc(st){
     ...(st.excludedIds||[])
   ]);
   const snoozedIds=new Set(Object.keys(st.snoozed||{}).map(Number));
-  const pending=st.allLPs.filter(l=>!doneIds.has(l.id)&&!snoozedIds.has(l.id));
+  let pending=st.allLPs.filter(l=>!doneIds.has(l.id)&&!snoozedIds.has(l.id));
+  // Sort pending by the stored LP order
+  const ord=st.lpOrder||'random';
+  if(ord==='sequential'){
+    pending=[...pending].sort((a,b)=>a.topic-b.topic||a.id-b.id);
+  } else if(Array.isArray(ord)){
+    const pos={};ord.forEach((t,i)=>pos[t]=i);
+    pending=[...pending].sort((a,b)=>(pos[a.topic]??99)-(pos[b.topic]??99)||a.id-b.id);
+  }
+  // random: preserve existing order (already distributed)
   const completedDates=new Set(st.days.filter(d=>d.completed).map(d=>d.date));
   const protectedDates=new Set(st.days.filter(d=>d.isProtected).map(d=>d.date));
   const skippedDates=new Set(st.days.filter(d=>d.skipped).map(d=>d.date)); // all skipped, past and today
@@ -507,9 +516,7 @@ function renderSetup(){
   // Reset local setup state each time setup is rendered
   lpComplexityMode=false;
   lpExcluded.clear();
-  lpOrder='random';
   lpOwlHours=0;
-  lpTopicOrder=[1,2,3,4,5,6];
   const today=dsNow(),dead=ds(addDays(new Date(),42));
 
   const tnames=['T1: Cardiovascular & Respiratory','T2: Gastroenterology & Renal','T3: Neurology, Endocrinology & Diabetes','T4: Rheumatology, Older Person\'s Health & Palliative Care','T5: Infectious Disease, Sexual Health & Dermatology','T6: Oncology & Haematology'];
@@ -540,19 +547,19 @@ function renderSetup(){
     </div>
   </div>
   <div class="card"><div class="card-title">Dates</div>
-    <div class="form-row"><label>Start date</label><input type="date" id="iS" value="${today}" oninput="upPrev()"/></div>
-    <div class="form-row"><label>Deadline</label><input type="date" id="iD" value="${dead}" oninput="upPrev()"/></div>
+    <div class="form-row"><label>Start date</label><input type="date" id="iS" value="${today}" oninput="upPrev()"/><div style="font-size:12px;color:var(--gray-400);margin-top:4px">The first day you'll begin studying.</div></div>
+    <div class="form-row"><label>Deadline</label><input type="date" id="iD" value="${dead}" oninput="upPrev()"/><div style="font-size:12px;color:var(--gray-400);margin-top:4px">Your exam or submission date. Learning points will be distributed up to this date.</div></div>
     <div class="form-row"><label>Buffer days — finish this many days before the deadline</label><input type="number" id="iB" value="3" min="0" max="90" style="width:80px" oninput="upPrev()"/></div>
     <div class="form-row"><label>Learning point order</label>
       <div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">
-        <button id="oRand" class="chip on" onclick="setOrder('random',this)">🔀 Randomised</button>
-        <button id="oSeq" class="chip" onclick="setOrder('sequential',this)">1→6 Topic order</button>
-        <button id="oCust" class="chip" onclick="setOrder('custom',this)">Custom order</button>
+        <button id="oRand" class="chip ${!Array.isArray(lpOrder)&&lpOrder==='random'?'on':''}" onclick="setOrder('random',this)">🔀 Randomised</button>
+        <button id="oSeq" class="chip ${!Array.isArray(lpOrder)&&lpOrder==='sequential'?'on':''}" onclick="setOrder('sequential',this)">1→6 Topic order</button>
+        <button id="oCust" class="chip ${Array.isArray(lpOrder)?'on':''}" onclick="setOrder('custom',this)">Custom order</button>
       </div>
-      <div id="customTopicOrder" style="display:none;margin-top:10px">
+      <div id="customTopicOrder" style="display:${Array.isArray(lpOrder)?'block':'none'};margin-top:10px">
         <div style="font-size:12px;color:var(--gray-400);margin-bottom:6px">Drag to set your preferred topic order:</div>
         <div id="topicDragList" style="display:flex;flex-direction:column;gap:4px">
-          ${[1,2,3,4,5,6].map(t=>`<div draggable="true" data-topic="${t}" style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:6px;cursor:grab;font-size:12px;color:var(--gray-700);user-select:none">
+          ${lpTopicOrder.map(t=>`<div draggable="true" data-topic="${t}" style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:6px;cursor:grab;font-size:12px;color:var(--gray-700);user-select:none">
             <span style="color:var(--gray-300);font-size:14px">⠿</span>
             <span style="font-size:10px;font-weight:600;color:var(--gray-400);min-width:16px">T${t}</span>
             <span>${TNAMES[t-1]}</span>
@@ -2120,6 +2127,52 @@ function renderSettings(){
         resolvedAhead:state.resolvedAhead||false,streak
       },null,2);
 
+      const schedInfo=JSON.stringify({
+        lpOrder:Array.isArray(state.lpOrder)?'custom:'+state.lpOrder.join(','):state.lpOrder||'random',
+        complexityMode:state.complexityMode||false,
+        excludedIds:(state.excludedIds||[]).length+' excluded: ['+(state.excludedIds||[]).join(', ')+']',
+        totalLPs:state.allLPs.length,
+        scheduledDays:state.days.filter(d=>!d.isBuffer).length,
+        bufferDays:state.days.filter(d=>d.isBuffer).length,
+        completedDays:state.days.filter(d=>d.completed).length,
+        deadlineDate:state.deadline,
+        targetFinish:ds(addDays(pd(state.deadline),-state.bufferDays-1)),
+      },null,2);
+
+      const notesInfo=(()=>{
+        const notes=state.notes||{};
+        const ids=Object.keys(notes).filter(id=>{const n=notes[id];return n&&(n.text||(n.images&&n.images.length));});
+        const withImages=ids.filter(id=>notes[id].images&&notes[id].images.length);
+        const totalImages=ids.reduce((s,id)=>s+(notes[id].images||[]).length,0);
+        const byTopic={};
+        ids.forEach(id=>{const lp=state.allLPs.find(l=>l.id===parseInt(id));if(lp){byTopic[lp.topic]=(byTopic[lp.topic]||0)+1;}});
+        return JSON.stringify({
+          totalNotes:ids.length,
+          withImages:withImages.length,
+          totalImages,
+          byTopic:Object.fromEntries(Object.entries(byTopic).map(([t,c])=>['T'+t,c])),
+          printSettings:{
+            topics:state.notesPrintTopics||[1,2,3,4,5,6],
+            mastery:state.notesPrintMastery||[0,1,2,3],
+            sort:state.notesPrintSort||'topic',
+            images:state.notesPrintImages!==false,
+          }
+        },null,2);
+      })();
+
+      const integrityInfo=(()=>{
+        const accounted=new Set();
+        state.days.filter(d=>d.completed).flatMap(d=>d.lps).forEach(l=>accounted.add(l.id));
+        state.days.filter(d=>!d.completed&&!d.isBuffer).flatMap(d=>d.lps).forEach(l=>accounted.add(l.id));
+        Object.keys(state.snoozed||{}).map(Number).forEach(id=>accounted.add(id));
+        (state.excludedIds||[]).forEach(id=>accounted.add(id));
+        const missing=state.allLPs.filter(l=>!accounted.has(l.id)).map(l=>'LP#'+l.id+' T'+l.topic+': '+l.text.slice(0,50));
+        const dupes=[];
+        const seen=new Set();
+        state.days.flatMap(d=>d.lps).forEach(l=>{if(seen.has(l.id))dupes.push('LP#'+l.id);seen.add(l.id);});
+        return 'missing ('+missing.length+'): '+(missing.join(', ')||'none')+'\nduplicates ('+dupes.length+'): '+(dupes.join(', ')||'none');
+      })();
+
       const snoozedInfo=Object.entries(state.snoozed||{}).map(([id,s])=>{
         const r=typeof s==='string'?s:s.returnDate;
         const f=typeof s==='object'?s.fromDate:'?';
@@ -2150,7 +2203,8 @@ function renderSettings(){
         const t=i+1;
         const total=state.allLPs.filter(l=>l.topic===t).length;
         const done=doneDays.flatMap(d=>d.lps).filter(l=>l.topic===t).length;
-        return 'T'+t+' '+name.split(':')[0]+': '+done+'/'+total;
+        const excl=(state.excludedIds||[]).filter(id=>state.allLPs.find(l=>l.id===id&&l.topic===t)).length;
+        return 'T'+t+': '+done+'/'+total+(excl?' ('+excl+' excl)':'');
       }).join('\n');
 
       const protInfo=state.days.filter(d=>d.isProtected).map(d=>
@@ -2161,6 +2215,9 @@ function renderSettings(){
         <div class="card-title" style="margin-bottom:4px">Debug</div>
         <div style="font-size:11px;color:var(--gray-400);margin-bottom:12px">Tap any block to copy. Green flash = copied.</div>
         ${preBlock('Session state ('+dsNow()+')', sessionInfo, true)}
+        ${preBlock('Schedule & settings', schedInfo, false)}
+        ${preBlock('LP integrity check', integrityInfo, false)}
+        ${preBlock('Notes ('+Object.keys(state.notes||{}).filter(id=>{const n=(state.notes||{})[id];return n&&(n.text||(n.images&&n.images.length));}).length+')', notesInfo, false)}
         ${preBlock('Snoozed LPs ('+Object.keys(state.snoozed||{}).length+') — queue: ['+([...pendingSnoozed].join(', ')||'empty')+']', snoozedInfo, false)}
         ${preBlock('Days ('+state.days.length+' total)', daysInfo, false)}
         ${preBlock('Mastery ('+Object.keys(m).length+' rated)', masteryInfo, false)}
@@ -2619,12 +2676,17 @@ function applyBuf(){
   state.bufferDays=v;
   recalc(state);save(state);rerender();
 }
-function resetPlan(){if(!confirm('Reset everything and start over?'))return;state=null;try{localStorage.removeItem('jmp2026_v3');}catch(e){}render();}
+function resetPlan(){if(!confirm('Reset everything and start over?'))return;state=null;lpOrder='random';lpTopicOrder=[1,2,3,4,5,6];try{localStorage.removeItem('jmp2026_v3');}catch(e){}render();}
 
 (function(){
   const s=load();
   if(s){
     state=s;
+    // Restore LP order into module-level variables so recalc uses the correct order
+    if(state.lpOrder){
+      lpOrder=state.lpOrder;
+      if(Array.isArray(state.lpOrder)) lpTopicOrder=state.lpOrder;
+    }
     // Remove all isFreeDay entries that aren't isProtected
     state.days=state.days.filter(d=>!d.isFreeDay||d.isProtected);
     // Deduplicate by date
@@ -2646,7 +2708,14 @@ function resetPlan(){if(!confirm('Reset everything and start over?'))return;stat
       // Store notification to show on dashboard
       state.missedNotice={dates:missedDates,lpCount:missedLPCount};
     } else {
-      recalc(state);
+      // Only recalc if integrity check finds missing LPs — don't reshuffle unnecessarily
+      const accounted=new Set();
+      state.days.filter(d=>d.completed).flatMap(d=>d.lps).forEach(l=>accounted.add(l.id));
+      state.days.filter(d=>!d.completed&&!d.isBuffer).flatMap(d=>d.lps).forEach(l=>accounted.add(l.id));
+      Object.keys(state.snoozed||{}).map(Number).forEach(id=>accounted.add(id));
+      (state.excludedIds||[]).forEach(id=>accounted.add(id));
+      const missing=state.allLPs.filter(l=>!accounted.has(l.id));
+      if(missing.length) recalc(state);
     }
     applyDayChange();
     activeTab='Dashboard';

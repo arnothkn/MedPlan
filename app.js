@@ -160,7 +160,7 @@ function migrateLpCatalog(st){
   };
   st.allLPs=filterDeprecated(st.allLPs);
   (st.days||[]).forEach(d=>{d.lps=filterDeprecated(d.lps||[]);});
-  ['mastery','notes','snoozed'].forEach(k=>{
+  ['mastery','notes','snoozed','flagged'].forEach(k=>{
     if(!st[k]) return;
     DEPRECATED_LP_IDS.forEach(id=>{if(Object.prototype.hasOwnProperty.call(st[k],id)){delete st[k][id];changed=true;}});
   });
@@ -227,6 +227,14 @@ const pendingSnoozed=new Set(); // LP ids flagged for snooze, applied on mark do
 
 const getMastery=id=>(state.mastery&&state.mastery[id])||0;
 function setMastery(id,val){if(!state.mastery)state.mastery={};state.mastery[id]=val;save(state);}
+const isFlagged=id=>!!(state.flagged&&state.flagged[id]);
+function setFlag(id,on){
+  if(!state.flagged)state.flagged={};
+  if(on) state.flagged[id]=true;
+  else delete state.flagged[id];
+  save(state);
+}
+function toggleFlag(id){setFlag(id,!isFlagged(id));rerender();}
 const doneLPs=()=>{
   const fromDays=state.days.filter(d=>d.completed).flatMap(d=>d.lps);
   const excluded=(state.excludedIds||[]).map(id=>state.allLPs.find(l=>l.id===id)).filter(Boolean);
@@ -656,7 +664,7 @@ function renderSetup(){
   <div id="se" style="display:none" class="alert danger"></div>
   <button class="setup-start" onclick="startPlan()">Start studying →</button>
   <div class="setup-import">Already have a progress file? <label>Import it<input type="file" accept=".json" onchange="importProgress(this)" style="display:none"/></label></div>
-  <div style="text-align:center;margin-top:14px;font-size:10px;color:var(--gray-300)">Last updated 17 May 2026</div>`;
+  <div style="text-align:center;margin-top:14px;font-size:10px;color:var(--gray-300)">Last updated 22 May 2026</div>`;
 }
 
 function bumpBuf(d){
@@ -829,7 +837,7 @@ function startPlan(){
     const excludedLps=allTopicLps.filter(l=>lpExcluded.has(l.id));
     excludedLps.forEach(l=>mastery[l.id]=3);
   }
-  state={startDate:s,deadline:d,bufferDays:b,lpOrder,complexityMode:lpComplexityMode,nightOwlHours:lpOwlHours,allLPs:allTopicLps,days:sched,mastery,snoozed:{},excludedIds:[...lpExcluded]};
+  state={startDate:s,deadline:d,bufferDays:b,lpOrder,complexityMode:lpComplexityMode,nightOwlHours:lpOwlHours,allLPs:allTopicLps,days:sched,mastery,snoozed:{},flagged:{},excludedIds:[...lpExcluded]};
   lpIntegrityCheck(state);
   activeTab='Dashboard';
   save(state);render();
@@ -1216,6 +1224,11 @@ function willSnoozeHitProtected(sessionDate){
   return landingDay&&landingDay.isProtected?landingDay.date:null;
 }
 
+function flagBtn(lp){
+  const on=isFlagged(lp.id);
+  return`<button onclick="toggleFlag(${lp.id})" title="${on?'Unflag — remove from follow-up list':'Flag for follow-up'}" style="font-size:13px;background:none;border:none;cursor:pointer;padding:2px 6px;line-height:1;color:${on?'var(--red)':'var(--gray-300)'};flex-shrink:0" aria-label="${on?'Unflag learning point':'Flag learning point'}">${on?'\u{1F6A9}':'⚑'}</button>`;
+}
+
 function tlGroup(lp,sessionDate,noteBtn){
   const m=getMastery(lp.id);
   const alreadySnoozed=getSnoozed(lp.id);
@@ -1240,7 +1253,7 @@ function tlGroup(lp,sessionDate,noteBtn){
     <button class="tl-btn tl-r${m===1?' on':''}" onclick="setMastery(${lp.id},${m===1?0:1});rerender()"><div class="tldot" style="background:var(--red)"></div>Needs work</button>
     <button class="tl-btn tl-a${m===2?' on':''}" onclick="setMastery(${lp.id},${m===2?0:2});rerender()"><div class="tldot" style="background:var(--amber)"></div>Getting there</button>
     <button class="tl-btn tl-g${m===3?' on':''}" onclick="setMastery(${lp.id},${m===3?0:3});rerender()"><div class="tldot" style="background:var(--green)"></div>Confident</button>
-  </div><div style="display:flex;align-items:center">${snoozeHtml}${noteBtn||''}</div>`;
+  </div><div style="display:flex;align-items:center">${snoozeHtml}<div style="margin-left:auto;display:flex;align-items:center;gap:2px">${flagBtn(lp)}${noteBtn||''}</div></div>`;
 }
 
 function lpCard(lps,editable,addlReadings,sessionDate){
@@ -1261,7 +1274,7 @@ function lpCard(lps,editable,addlReadings,sessionDate){
       <div class="lp-text">${lp.text}</div>
       <div class="lp-meta">${TNAMES[lp.topic-1]} · ${COLS[lp.col]}</div>
       ${linkBtns(lp)}
-      ${tlGroup(lp,session,`<button onclick="toggleLpNote(${lp.id})" style="font-size:11px;color:${hasNote?'var(--blue)':'var(--gray-400)'};background:none;border:none;cursor:pointer;padding:2px 0 2px 8px;font-family:inherit;margin-left:auto;flex-shrink:0">${hasNote?'📝 Note':'＋ Add note'}</button>`)}
+      ${tlGroup(lp,session,`<button onclick="toggleLpNote(${lp.id})" style="font-size:11px;color:${hasNote?'var(--blue)':'var(--gray-400)'};background:none;border:none;cursor:pointer;padding:2px 0 2px 8px;font-family:inherit;flex-shrink:0">${hasNote?'📝 Note':'＋ Add note'}</button>`)}
       <div id="note-${lp.id}" style="display:none;margin-top:6px">
         <textarea oninput="saveNote(${lp.id},this.value)" onpaste="handleNotePaste(event,${lp.id})" placeholder="Type your notes here…" style="width:100%;min-height:80px;font-size:12px;font-family:inherit;border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:8px;resize:vertical;box-sizing:border-box;color:var(--gray-700)">${note.text||''}</textarea>
         <label style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--gray-400);cursor:pointer;margin-top:4px">
@@ -1925,6 +1938,22 @@ function renderProgress(){
   const unratedCount=done-m[1]-m[2]-m[3];
   const pctOf=n=>done?Math.round(n/done*100):0;
   const pctSpan=n=>done?`<span class="lbl-pct">${pctOf(n)}%</span>`:'';
+
+  // Flagged LPs (bookmarked for follow-up)
+  const flaggedLps=Object.keys(state.flagged||{}).map(Number).map(id=>state.allLPs.find(l=>l.id===id)).filter(Boolean);
+  const flaggedCard=flaggedLps.length?`<div class="card"><div class="card-title">Flagged <span style="color:var(--gray-400);font-weight:normal;font-size:11px">· ${flaggedLps.length}</span></div>
+    ${flaggedLps.map(lp=>{
+      const mm=getMastery(lp.id);
+      const wasDone=doneLPIds.has(lp.id);
+      const date=lpDateMap[lp.id];
+      const dateLabel=date?(wasDone?`Done ${fmt(date)}`:`Due ${fmt(date)}`):'';
+      return`<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--gray-100)">
+        <div style="flex:1;font-size:12px;color:var(--gray-700);line-height:1.5">${lp.text}<div style="color:var(--gray-400);font-size:11px;margin-top:2px">${TNAMES[lp.topic-1]}${dateLabel?' · '+dateLabel:''}</div></div>
+        <div style="width:7px;height:7px;border-radius:50%;background:${TL_DOT[wasDone?mm:0]};flex-shrink:0" title="${wasDone?TL_LABEL[mm]:TL_LABEL[0]}"></div>
+        <span style="font-size:13px;color:var(--red);padding:2px 6px;line-height:1;flex-shrink:0" aria-label="Flagged">\u{1F6A9}</span>
+      </div>`;
+    }).join('')}
+  </div>`:'';
   return`<div class="metrics">
     <div class="metric" onclick="state.historyFilter=[3];save(state);sw('History')" style="cursor:pointer" title="View in History"><div class="val" style="color:var(--green)">${m[3]}</div><div class="lbl">Confident${pctSpan(m[3])}</div></div>
     <div class="metric" onclick="state.historyFilter=[2];save(state);sw('History')" style="cursor:pointer" title="View in History"><div class="val" style="color:var(--amber)">${m[2]}</div><div class="lbl">Getting there${pctSpan(m[2])}</div></div>
@@ -1933,6 +1962,7 @@ function renderProgress(){
   </div>
   <div class="card"><div class="card-title">Overall coverage</div><div class="legend"><span><div class="ldot" style="background:var(--green)"></div>Confident</span><span><div class="ldot" style="background:var(--amber)"></div>Getting there</span><span><div class="ldot" style="background:var(--red)"></div>Needs work</span><span><div class="ldot" style="background:#9ca3af"></div>Unrated</span><span><div class="ldot" style="background:#fde68a"></div>Snoozed</span></div>${segBar(total,dl,12)}<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--gray-400);margin-top:5px"><span>${pct}% covered</span><span>${done}/${total} learning points</span></div></div>
   ${arCard}
+  ${flaggedCard}
   <div class="card"><div class="card-title">By topic</div>${topicRows}</div>
   <div class="card"><div class="card-title">Timeline</div><div style="font-size:13px;color:var(--gray-500);line-height:2.4"><div>Start: <strong style="color:var(--gray-700)">${fmt(state.startDate)}</strong></div><div>Target finish: <strong style="color:var(--gray-700)">${last?fmt(last.date):'—'}</strong></div><div>Deadline: <strong style="color:var(--gray-700)">${fmt(state.deadline)}</strong></div><div>Buffer: <strong style="color:var(--gray-700)">${bufCnt} free day${bufCnt!==1?'s':''}</strong></div><div>Days studied: <strong style="color:var(--gray-700)">${stuDays}</strong></div></div></div>`;
 }
@@ -2579,7 +2609,7 @@ function renderSettings(){
     <div style="font-size:13px;color:var(--gray-500);line-height:1.8">
       <div>JMP 2026 Study Planner</div>
       <div style="font-size:12px;color:var(--gray-400)">Built out of boredom and a need to procrastinate — by Arno</div>
-      <div style="font-size:12px;color:var(--gray-400)">Last updated: 17 May 2026</div>
+      <div style="font-size:12px;color:var(--gray-400)">Last updated: 22 May 2026</div>
     </div>
   </div>
   <div class="card"><div class="card-title">Danger zone</div><button class="btn danger" onclick="resetPlan()">Reset and start over</button></div>`;
@@ -2603,6 +2633,7 @@ function exportProgress(){
     // Ratings and snoozes
     mastery:state.mastery||{},
     snoozed:state.snoozed||{},
+    flagged:state.flagged||{},
     // Notes (may be large if images attached)
     notes:state.notes||{},
     // Streak continuity
@@ -2659,6 +2690,7 @@ function importProgress(input){
         days:data.days,
         mastery:data.mastery||{},
         snoozed:data.snoozed||{},
+        flagged:data.flagged||{},
         notes:data.notes||{},
         todayCompletedDates:data.todayCompletedDates||[],
         todayCompletedDatesDay:data.todayCompletedDatesDay||'',
@@ -3214,6 +3246,7 @@ function renderSearchRowHtml(lp,idx){
         ${statusLineHtml}
       </div>
       <div class="search-result-side">
+        ${isFlagged(lp.id)?`<span style="font-size:11px;color:var(--red);line-height:1" title="Flagged">\u{1F6A9}</span>`:''}
         <span class="search-dot search-dot-${RATING_CLS[m]}" title="${TL_LBL[m]}"></span>
       </div>
     </div>
@@ -3251,10 +3284,13 @@ function renderSearchExpandedHtml(lp){
     const label=['','Needs work','Getting there','Confident'][v];
     return `<button class="tl-btn ${cls}${m===v?' on':''}" onclick="event.stopPropagation();setMastery(${lp.id},${m===v?0:v});refreshSearchResults()"><div class="tldot" style="background:${dotColor}"></div>${label}</button>`;
   }).join('');
+  const flagOn=isFlagged(lp.id);
+  const flagToggle=`<button onclick="event.stopPropagation();setFlag(${lp.id},${!flagOn});refreshSearchResults()" title="${flagOn?'Unflag':'Flag for follow-up'}" style="margin-top:10px;background:none;border:1px solid ${flagOn?'var(--red)':'var(--gray-200)'};color:${flagOn?'var(--red)':'var(--gray-500)'};border-radius:var(--radius-sm);padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px">${flagOn?'\u{1F6A9} Unflag':'⚑ Flag'}</button>`;
   return `<div class="search-expanded-content" onclick="event.stopPropagation()">
     ${infoStripHtml}
     ${linksHtml}
     <div class="tl-group" style="margin-top:10px">${masteryBtns}</div>
+    ${flagToggle}
     <div class="search-expanded-note">${noteHtml}</div>
   </div>`;
 }

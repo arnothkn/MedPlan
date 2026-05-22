@@ -1951,6 +1951,7 @@ function renderProgress(){
         <div style="flex:1;font-size:12px;color:var(--gray-700);line-height:1.5">${lp.text}<div style="color:var(--gray-400);font-size:11px;margin-top:2px">${TNAMES[lp.topic-1]}${dateLabel?' · '+dateLabel:''}</div></div>
         <div style="width:7px;height:7px;border-radius:50%;background:${TL_DOT[wasDone?mm:0]};flex-shrink:0" title="${wasDone?TL_LABEL[mm]:TL_LABEL[0]}"></div>
         <span style="font-size:13px;color:var(--red);padding:2px 6px;line-height:1;flex-shrink:0" aria-label="Flagged">\u{1F6A9}</span>
+        <button onclick="toggleFlag(${lp.id})" title="Remove flag" style="font-size:11px;background:none;border:1px solid var(--gray-200);color:var(--gray-500);border-radius:var(--radius-sm);padding:3px 8px;cursor:pointer;font-family:inherit;flex-shrink:0">Remove</button>
       </div>`;
     }).join('')}
   </div>`:'';
@@ -1999,6 +2000,7 @@ function renderHistory(){
   const TL_LABEL={0:'Rate',1:'Needs work',2:'Getting there',3:'Confident'};
   const active=state.historyRating!=null?state.historyRating:null;
   const filters=Array.isArray(state.historyFilter)&&state.historyFilter.length>0?state.historyFilter:null;
+  const flaggedOnly=!!state.historyFlaggedOnly;
 
   // Filter chips
   const chips=[
@@ -2007,13 +2009,15 @@ function renderHistory(){
     {v:3,label:'Confident',dot:'var(--green)',bg:'var(--green-light)',tc:'var(--green-dark)'},
     {v:0,label:'Unrated',dot:'#9ca3af',bg:'var(--gray-100)',tc:'var(--gray-600)'},
   ];
+  const flagChip=`<button onclick="state.historyFlaggedOnly=!state.historyFlaggedOnly;save(state);rerender()" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:4px 10px;border-radius:20px;border:1.5px solid ${flaggedOnly?'var(--red)':'var(--gray-200)'};background:${flaggedOnly?'var(--red-light)':'#fff'};color:${flaggedOnly?'var(--red-dark)':'var(--gray-500)'};cursor:pointer;font-family:inherit;font-weight:${flaggedOnly?'500':'400'}">\u{1F6A9} Flagged</button>`;
   const filterBar=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
     <span style="font-size:11px;color:var(--gray-400);margin-right:2px">Show:</span>
     ${chips.map(c=>{
       const on=filters&&filters.includes(c.v);
       return`<button onclick="setHistoryFilter(${c.v})" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:4px 10px;border-radius:20px;border:1.5px solid ${on?c.dot:'var(--gray-200)'};background:${on?c.bg:'#fff'};color:${on?c.tc:'var(--gray-500)'};cursor:pointer;font-family:inherit;font-weight:${on?'500':'400'}"><div style="width:7px;height:7px;border-radius:50%;background:${c.dot}"></div>${c.label}</button>`;
     }).join('')}
-    ${filters?`<button onclick="state.historyFilter=[];save(state);rerender()" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--gray-200);background:#fff;color:var(--gray-400);cursor:pointer;font-family:inherit">✕ Clear</button>`:''}
+    ${flagChip}
+    ${(filters||flaggedOnly)?`<button onclick="state.historyFilter=[];state.historyFlaggedOnly=false;save(state);rerender()" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--gray-200);background:#fff;color:var(--gray-400);cursor:pointer;font-family:inherit">✕ Clear</button>`:''}
     <span style="margin-left:auto;display:flex;gap:4px">
       <button onclick="state.historySort='date';save(state);rerender()" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1.5px solid ${sort==='date'?'var(--gray-700)':'var(--gray-200)'};background:${sort==='date'?'var(--gray-900)':'#fff'};color:${sort==='date'?'#fff':'var(--gray-500)'};cursor:pointer;font-family:inherit">By date</button>
       <button onclick="state.historySort='lastDone';save(state);rerender()" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1.5px solid ${sort==='lastDone'?'var(--gray-700)':'var(--gray-200)'};background:${sort==='lastDone'?'var(--gray-900)':'#fff'};color:${sort==='lastDone'?'#fff':'var(--gray-500)'};cursor:pointer;font-family:inherit">Last done</button>
@@ -2024,15 +2028,17 @@ function renderHistory(){
     const isProtected=d.isProtected?` <span class="badge" style="background:#f3e8ff;color:#7c3aed">protected</span>`:'';
 
     // Apply filter to this day's LPs
-    const filteredLps=!filters?d.lps:d.lps.filter(lp=>filters.includes(getMastery(lp.id)));
+    let filteredLps=!filters?d.lps:d.lps.filter(lp=>filters.includes(getMastery(lp.id)));
+    if(flaggedOnly) filteredLps=filteredLps.filter(lp=>isFlagged(lp.id));
 
     // LPs snoozed from this day — show if no filter or if unrated (0) is in filters
-    const snoozedFromDay=(!filters||filters.includes(0))?Object.entries(state.snoozed||{})
+    let snoozedFromDay=(!filters||filters.includes(0))?Object.entries(state.snoozed||{})
       .filter(([,s])=>typeof s==='object'&&s.fromDate===d.date)
       .map(([idStr,s])=>{
         const lp=state.allLPs.find(l=>l.id===parseInt(idStr));
         return lp?{lp,returnDate:s.returnDate}:null;
       }).filter(Boolean):[];
+    if(flaggedOnly) snoozedFromDay=snoozedFromDay.filter(({lp})=>isFlagged(lp.id));
 
     // Skip the whole day card if nothing matches
     if(!filteredLps.length&&!snoozedFromDay.length) return '';
@@ -2044,23 +2050,30 @@ function renderHistory(){
         ${[1,2,3].map(v=>`<button onclick="setMastery(${lp.id},${m===v?0:v});state.historyRating=null;save(state);rerender()" style="font-size:11px;padding:3px 8px;border-radius:var(--radius-sm);border:1.5px solid ${v===m?'currentColor':'var(--gray-200)'};background:${v===m?(v===1?'var(--red-light)':v===2?'var(--amber-light)':'var(--green-light)'):'#fff'};color:${v===1?'var(--red-dark)':v===2?'var(--amber-dark)':'var(--green-dark)'};cursor:pointer;font-family:inherit">${v===1?'Needs work':v===2?'Getting there':'Confident'}</button>`).join('')}
         <button onclick="state.historyRating=null;rerender()" style="font-size:11px;padding:3px 8px;border-radius:var(--radius-sm);border:1px solid var(--gray-200);background:#fff;color:var(--gray-400);cursor:pointer;font-family:inherit">cancel</button>
       </div>`:'';
+      const fl=isFlagged(lp.id);
+      const flagToggle=`<button onclick="toggleFlag(${lp.id})" title="${fl?'Unflag':'Flag for follow-up'}" aria-label="${fl?'Unflag learning point':'Flag learning point'}" style="background:none;border:none;cursor:pointer;font-size:12px;color:${fl?'var(--red)':'var(--gray-300)'};padding:0 2px;line-height:1">${fl?'\u{1F6A9}':'⚑'}</button>`;
       return`<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
         <div style="flex:1;font-size:12px;color:var(--gray-700);line-height:1.45">${lp.text}${ratingPanel}</div>
         <div style="flex-shrink:0;display:flex;align-items:center;gap:5px;white-space:nowrap">
+          ${flagToggle}
           <div style="width:7px;height:7px;border-radius:50%;background:${TL_DOT[m]}"></div>
           <span onclick="state.historyRating=${isOpen?'null':lp.id};rerender()" style="font-size:11px;color:${m>0?TL_DOT[m]:'var(--gray-400)'};cursor:pointer;text-decoration:underline;text-underline-offset:2px">${TL_LABEL[m]}</span>
         </div>
       </div>`;
     }).join('');
 
-    const snoozedRows=snoozedFromDay.map(({lp,returnDate})=>`
-      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--gray-100);opacity:.7">
+    const snoozedRows=snoozedFromDay.map(({lp,returnDate})=>{
+      const fl=isFlagged(lp.id);
+      const flagToggle=`<button onclick="toggleFlag(${lp.id})" title="${fl?'Unflag':'Flag for follow-up'}" aria-label="${fl?'Unflag learning point':'Flag learning point'}" style="background:none;border:none;cursor:pointer;font-size:12px;color:${fl?'var(--red)':'var(--gray-300)'};padding:0 2px;line-height:1">${fl?'\u{1F6A9}':'⚑'}</button>`;
+      return`<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--gray-100);opacity:.7">
         <div style="flex:1;font-size:12px;color:var(--gray-700);line-height:1.45">${lp.text}</div>
         <div style="flex-shrink:0;display:flex;align-items:center;gap:5px;white-space:nowrap">
+          ${flagToggle}
           <div style="width:7px;height:7px;border-radius:50%;background:var(--amber)"></div>
           <span style="font-size:11px;color:var(--amber-dark)">&#128337; Returns ${fmt(returnDate)}</span>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
 
     const totalPts=d.lps.length+Object.entries(state.snoozed||{}).filter(([,s])=>typeof s==='object'&&s.fromDate===d.date).length;
     const rated=d.lps.filter(lp=>getMastery(lp.id)>0).length;
@@ -2081,15 +2094,21 @@ function renderHistory(){
   let excludedCard='';
   if((state.excludedIds||[]).length>0){
     const excludedLps=state.allLPs.filter(l=>(state.excludedIds||[]).includes(l.id));
-    const filteredExcluded=!filters?excludedLps:excludedLps.filter(lp=>filters.includes(getMastery(lp.id)));
-    if(filteredExcluded.length||!filters){
-      const rows=filteredExcluded.map(lp=>`<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
+    let filteredExcluded=!filters?excludedLps:excludedLps.filter(lp=>filters.includes(getMastery(lp.id)));
+    if(flaggedOnly) filteredExcluded=filteredExcluded.filter(lp=>isFlagged(lp.id));
+    if(filteredExcluded.length||(!filters&&!flaggedOnly)){
+      const rows=filteredExcluded.map(lp=>{
+        const fl=isFlagged(lp.id);
+        const flagToggle=`<button onclick="toggleFlag(${lp.id})" title="${fl?'Unflag':'Flag for follow-up'}" aria-label="${fl?'Unflag learning point':'Flag learning point'}" style="background:none;border:none;cursor:pointer;font-size:12px;color:${fl?'var(--red)':'var(--gray-300)'};padding:0 2px;line-height:1">${fl?'\u{1F6A9}':'⚑'}</button>`;
+        return`<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
         <div style="flex:1;font-size:12px;color:var(--gray-700);line-height:1.45">${lp.text}</div>
         <div style="flex-shrink:0;display:flex;align-items:center;gap:5px;white-space:nowrap">
+          ${flagToggle}
           <div style="width:7px;height:7px;border-radius:50%;background:var(--green)"></div>
           <span style="font-size:11px;color:var(--green-dark)">Excluded</span>
         </div>
-      </div>`).join('');
+      </div>`;
+      }).join('');
       excludedCard=`<div class="card" style="padding:12px 16px;margin-bottom:10px;border-color:var(--gray-200)">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <div style="font-size:13px;font-weight:500;color:var(--gray-500)">Excluded — pre-completed</div>
@@ -2642,6 +2661,7 @@ function exportProgress(){
     // Preferences
     nightOwlHours:state.nightOwlHours||0,
     historyFilter:state.historyFilter||[],
+    historyFlaggedOnly:!!state.historyFlaggedOnly,
     historySort:state.historySort||'date',
     notesSort:state.notesSort||'topic',
     notesMastery:state.notesMastery||[],
@@ -2696,6 +2716,7 @@ function importProgress(input){
         todayCompletedDatesDay:data.todayCompletedDatesDay||'',
         nightOwlHours:data.nightOwlHours||0,
         historyFilter:data.historyFilter||[],
+        historyFlaggedOnly:!!data.historyFlaggedOnly,
         historySort:data.historySort||'date',
         notesSort:data.notesSort||'topic',
         notesMastery:data.notesMastery||[],

@@ -1830,7 +1830,7 @@ function renderToday(){
     content=`<div class="alert success">Protected day — enjoy the break!</div>`;
   } else if(dayObj.completed){
     badge=`<span class="badge bg">Done</span>`;
-    content=`<div class="alert success">${activeLpCount(dayObj)} learning point${activeLpCount(dayObj)!==1?'s':''} completed today.</div>${lpCard(dayObj.lps,true,todayReadings,today)}`;
+    content=lpCard(dayObj.lps,true,todayReadings,today);
   } else if(dayObj.skipped){
     badge=`<span class="badge ba">Skipped</span>`;
     content=`<div class="alert warning">Today was skipped. Load redistributed across remaining study days.</div>`;
